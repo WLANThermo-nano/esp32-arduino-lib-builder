@@ -95,6 +95,7 @@ jobs:
         if: ${{ !inputs.dry_run }}
         uses: softprops/action-gh-release@v2
         with:
+          token: ${{ secrets.ARDUINO_ESP32_RELEASE_TOKEN }}
           tag_name: ${{ inputs.arduino_tag }}-pm-enable
           name: "arduino-esp32 ${{ inputs.arduino_tag }} + CONFIG_PM_ENABLE"
           repository: WLANThermo-nano/arduino-esp32
@@ -113,5 +114,3 @@ jobs:
             Gebaut mit [WLANThermo-nano/esp32-arduino-lib-builder](https://github.com/WLANThermo-nano/esp32-arduino-lib-builder).
           files: framework-arduinoespressif32-${{ inputs.arduino_tag }}-pm-enable.tar.gz
           prerelease: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.ARDUINO_ESP32_RELEASE_TOKEN }}
