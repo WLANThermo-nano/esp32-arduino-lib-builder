@@ -38,7 +38,7 @@ jobs:
           repository: espressif/arduino-esp32
           ref: ${{ inputs.arduino_tag }}
           path: arduino-esp32
-          depth: 1
+          fetch-depth: 1
           filter: blob:none
 
       - name: Create defconfig.pm_enable
@@ -52,7 +52,6 @@ jobs:
         run: |
           ./build.sh \
             -t esp32 \
-            -A ${{ inputs.arduino_tag }} \
             -c ${{ github.workspace }}/arduino-esp32 \
             pm_enable
         timeout-minutes: 90
