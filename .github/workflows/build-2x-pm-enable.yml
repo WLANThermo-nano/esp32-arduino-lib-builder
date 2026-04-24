@@ -56,6 +56,13 @@ jobs:
               '# esp-dl skipped: idf_component.yml requires idf >= 5.0, incompatible with IDF 4.4.x'
           )
 
+          # Fix 3: esp32-camera latest master requires IDF >= 5.1 (added in commit 6b684158)
+          # Pin to 8e1a00391a0b (last commit before the >=5.1 requirement, no IDF version constraint)
+          content = content.replace(
+              'if [ ! -d "$AR_COMPS/esp32-camera" ]; then\n\tgit clone $CAMERA_REPO_URL "$AR_COMPS/esp32-camera"\nelse\n\tgit -C "$AR_COMPS/esp32-camera" fetch && \\\n\tgit -C "$AR_COMPS/esp32-camera" pull --ff-only\nfi\nif [ $? -ne 0 ]; then exit 1; fi',
+              'if [ ! -d "$AR_COMPS/esp32-camera" ]; then\n\tgit clone $CAMERA_REPO_URL "$AR_COMPS/esp32-camera"\nfi\ngit -C "$AR_COMPS/esp32-camera" reset --hard 8e1a00391a0b\nif [ $? -ne 0 ]; then exit 1; fi'
+          )
+
           with open('tools/update-components.sh', 'w') as f:
               f.write(content)
 
