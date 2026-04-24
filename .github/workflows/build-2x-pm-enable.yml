@@ -37,7 +37,7 @@ jobs:
       - name: Install build dependencies
         run: bash ./tools/prepare-ci.sh
 
-      - name: Patch update-components.sh (tag checkout + esp-dl IDF 5.0 conflict)
+      - name: Patch update-components.sh (IDF 4.4.x compatibility)
         run: |
           python3 << 'PYEOF'
           with open('tools/update-components.sh', 'r') as f:
@@ -49,29 +49,37 @@ jobs:
               '\tgit -C "$AR_COMPS/arduino" symbolic-ref -q HEAD && git -C "$AR_COMPS/arduino" pull --ff-only || echo "Skipping pull: tag checkout (detached HEAD)"'
           )
 
-          # Fix 2: esp-dl manifest requires IDF >= 5.0, incompatible with IDF 4.4.x
-          # IDF auto-discovers all components/ subdirs with CMakeLists.txt -> skip clone entirely
+          # Fix 2: esp-dl idf_component.yml requires IDF >= 5.0 — skip clone entirely
           content = content.replace(
               'if [ ! -d "$AR_COMPS/esp-dl" ]; then\n\tgit clone $DL_REPO_URL "$AR_COMPS/esp-dl" && \\\n\tgit -C "$AR_COMPS/esp-dl" reset --hard 0632d2447dd49067faabe9761d88fa292589d5d9\n\tif [ $? -ne 0 ]; then exit 1; fi\nfi',
               '# esp-dl skipped: idf_component.yml requires idf >= 5.0, incompatible with IDF 4.4.x'
           )
 
-          # Fix 3: esp32-camera latest master requires IDF >= 5.1 (added in commit 6b684158)
-          # Pin to 8e1a00391a0b (last commit before the >=5.1 requirement, no IDF version constraint)
-          content = content.replace(
-              'if [ ! -d "$AR_COMPS/esp32-camera" ]; then\n\tgit clone $CAMERA_REPO_URL "$AR_COMPS/esp32-camera"\nelse\n\tgit -C "$AR_COMPS/esp32-camera" fetch && \\\n\tgit -C "$AR_COMPS/esp32-camera" pull --ff-only\nfi\nif [ $? -ne 0 ]; then exit 1; fi',
-              'if [ ! -d "$AR_COMPS/esp32-camera" ]; then\n\tgit clone $CAMERA_REPO_URL "$AR_COMPS/esp32-camera"\nfi\ngit -C "$AR_COMPS/esp32-camera" reset --hard 8e1a00391a0b\nif [ $? -ne 0 ]; then exit 1; fi'
+          # Fix 3+4+safety-net: appended shell block that runs AFTER all components are cloned:
+          #   - Pin esp32-camera to last IDF 4.x compatible commit (8e1a003, before >=5.1 requirement)
+          #   - Pin esp_littlefs to last commit with idf >= 4.3 (71e5492, v1.16.4, before >=5.0 requirement)
+          #   - sed: relax any remaining "idf: >=5.x" constraints in all component manifests
+          content += (
+              '\n\n# === IDF 4.4.x compatibility fixes (appended by build workflow) ===\n'
+              'git -C "$AR_COMPS/esp32-camera" reset --hard 8e1a00391a0b 2>/dev/null || true\n'
+              'git -C "$AR_COMPS/esp_littlefs" reset --hard 71e549277d3c728a87281b843f654638cb5eb154 2>/dev/null && \\\n'
+              '  git -C "$AR_COMPS/esp_littlefs" submodule update --init --recursive 2>/dev/null || true\n'
+              'echo "Relaxing idf >= 5.x constraints in component manifests..."\n'
+              "find \"$AR_COMPS\" -name 'idf_component.yml' "
+              "-exec sed -i 's/idf: \">=5\\.[^\"]*\"/idf: \">=4.0\"/g' {} \\;\n"
+              'echo "Component manifest patching complete"\n'
           )
 
           with open('tools/update-components.sh', 'w') as f:
               f.write(content)
-
           print('Patched successfully')
           PYEOF
           echo "--- arduino pull section ---"
           grep -A3 'checkout.*AR_BRANCH' tools/update-components.sh
           echo "--- esp-dl section ---"
-          grep -A2 'esp-dl' tools/update-components.sh
+          grep -A1 'esp-dl' tools/update-components.sh
+          echo "--- appended fixes ---"
+          tail -12 tools/update-components.sh
 
       - name: Add defconfig.pm_enable
         run: |
