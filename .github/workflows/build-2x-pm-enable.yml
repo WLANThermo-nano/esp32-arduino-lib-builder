@@ -1,0 +1,119 @@
+name: Build arduino-esp32 2.x + CONFIG_PM_ENABLE
+
+on:
+  workflow_dispatch:
+    inputs:
+      arduino_tag:
+        description: 'arduino-esp32 tag (z.B. 2.0.17)'
+        required: true
+        default: '2.0.17'
+      dry_run:
+        description: 'true = Artifact statt Release (zum Testen)'
+        type: boolean
+        default: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Free disk space
+        run: |
+          sudo rm -rf \
+            /usr/share/dotnet \
+            /usr/local/lib/android \
+            /opt/ghc \
+            "$AGENT_TOOLSDIRECTORY"
+          df -h
+
+      # Wir verwenden den offiziellen Espressif lib-builder für IDF 4.4
+      # (unser WLANThermo-nano-Fork ist auf ESP-IDF 5.x / 3.x ausgerichtet)
+      - name: Checkout espressif/esp32-arduino-lib-builder (release/v4.4)
+        uses: actions/checkout@v4
+        with:
+          repository: espressif/esp32-arduino-lib-builder
+          ref: release/v4.4
+
+      - name: Install build dependencies
+        run: bash ./tools/prepare-ci.sh
+
+      - name: Add defconfig.pm_enable
+        run: |
+          printf 'CONFIG_PM_ENABLE=y\nCONFIG_FREERTOS_USE_TICKLESS_IDLE=y\nCONFIG_FREERTOS_IDLE_TIME_BEFORE_SLEEP=3\n' \
+            > configs/defconfig.pm_enable
+          echo "--- defconfig.pm_enable ---"
+          cat configs/defconfig.pm_enable
+
+      - name: Checkout arduino-esp32 ${{ inputs.arduino_tag }} (Output-Ziel)
+        uses: actions/checkout@v4
+        with:
+          repository: espressif/arduino-esp32
+          ref: ${{ inputs.arduino_tag }}
+          path: arduino-out
+          fetch-depth: 1
+          filter: blob:none
+
+      - name: Build ESP32 SDK with CONFIG_PM_ENABLE
+        # AR_USER=espressif: lib-builder klont von espressif/arduino-esp32 (nicht WLANThermo-nano)
+        # AR_BRANCH: Tag als Checkout-Ref für intern geklontes arduino-esp32
+        # -c arduino-out: Kopiert die gebauten Libs in unser pre-checkout-Verzeichnis
+        env:
+          AR_USER: espressif
+          AR_BRANCH: ${{ inputs.arduino_tag }}
+        run: |
+          ./build.sh -t esp32 -c ${{ github.workspace }}/arduino-out pm_enable
+        timeout-minutes: 120
+
+      - name: Verify CONFIG_PM_ENABLE in output
+        run: |
+          echo "=== SDK-Struktur (arduino-out/tools/sdk/esp32/) ==="
+          find arduino-out/tools/sdk/esp32 -maxdepth 2 | head -20
+          echo ""
+          echo "=== PM-Settings in sdkconfig.h ==="
+          grep "CONFIG_PM_ENABLE\|CONFIG_FREERTOS_USE_TICKLESS_IDLE\|IDLE_TIME_BEFORE_SLEEP" \
+            arduino-out/tools/sdk/esp32/include/sdkconfig.h \
+            || echo "WARNUNG: PM-Settings nicht gefunden!"
+          df -h
+
+      - name: Create PlatformIO package tarball
+        run: |
+          TAG="${{ inputs.arduino_tag }}"
+          PACKAGE="framework-arduinoespressif32-${TAG}-pm-enable"
+          tar -czf "${PACKAGE}.tar.gz" -C arduino-out .
+          ls -lh "${PACKAGE}.tar.gz"
+
+      - name: Upload artifact (dry run)
+        if: ${{ inputs.dry_run }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: framework-arduinoespressif32-${{ inputs.arduino_tag }}-pm-enable
+          path: framework-arduinoespressif32-${{ inputs.arduino_tag }}-pm-enable.tar.gz
+          retention-days: 7
+
+      - name: Create GitHub Release on WLANThermo-nano/arduino-esp32
+        if: ${{ !inputs.dry_run }}
+        uses: softprops/action-gh-release@v2
+        with:
+          token: ${{ secrets.ARDUINO_ESP32_RELEASE_TOKEN }}
+          tag_name: ${{ inputs.arduino_tag }}-pm-enable
+          name: "arduino-esp32 ${{ inputs.arduino_tag }} + CONFIG_PM_ENABLE"
+          repository: WLANThermo-nano/arduino-esp32
+          body: |
+            arduino-esp32 `${{ inputs.arduino_tag }}` (ESP-IDF 4.4.x) mit:
+            - `CONFIG_PM_ENABLE=y`
+            - `CONFIG_FREERTOS_USE_TICKLESS_IDLE=y`
+            - `CONFIG_FREERTOS_IDLE_TIME_BEFORE_SLEEP=3`
+
+            Für WLANThermo System-Light-Sleep (~12mA statt ~35mA WiFi-Modem-Sleep).
+
+            **platformio.ini:**
+            ```ini
+            [env]
+            platform = espressif32@^6.0.0
+            platform_packages =
+                framework-arduinoespressif32 @ https://github.com/WLANThermo-nano/arduino-esp32/releases/download/${{ inputs.arduino_tag }}-pm-enable/framework-arduinoespressif32-${{ inputs.arduino_tag }}-pm-enable.tar.gz
+            ```
+
+            Gebaut mit [espressif/esp32-arduino-lib-builder@release/v4.4](https://github.com/espressif/esp32-arduino-lib-builder/tree/release/v4.4).
+          files: framework-arduinoespressif32-${{ inputs.arduino_tag }}-pm-enable.tar.gz
+          prerelease: true
