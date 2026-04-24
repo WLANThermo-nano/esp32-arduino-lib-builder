@@ -37,6 +37,23 @@ jobs:
       - name: Install build dependencies
         run: bash ./tools/prepare-ci.sh
 
+      - name: Patch update-components.sh for tag checkout (detached HEAD)
+        run: |
+          python3 -c "
+          with open('tools/update-components.sh', 'r') as f:
+              content = f.read()
+          # git pull --ff-only fails when checked out at a tag (detached HEAD, no tracking branch).
+          # Replace the arduino-specific pull with a guard that skips pull on detached HEAD.
+          content = content.replace(
+              '\tgit -C \"\$AR_COMPS/arduino\" pull --ff-only',
+              '\tgit -C \"\$AR_COMPS/arduino\" symbolic-ref -q HEAD && git -C \"\$AR_COMPS/arduino\" pull --ff-only || echo \"Skipping pull: tag checkout (detached HEAD)\"'
+          )
+          with open('tools/update-components.sh', 'w') as f:
+              f.write(content)
+          "
+          echo "--- patched section ---"
+          grep -A3 'checkout.*AR_BRANCH' tools/update-components.sh
+
       - name: Add defconfig.pm_enable
         run: |
           printf 'CONFIG_PM_ENABLE=y\nCONFIG_FREERTOS_USE_TICKLESS_IDLE=y\nCONFIG_FREERTOS_IDLE_TIME_BEFORE_SLEEP=3\n' \
