@@ -37,22 +37,34 @@ jobs:
       - name: Install build dependencies
         run: bash ./tools/prepare-ci.sh
 
-      - name: Patch update-components.sh for tag checkout (detached HEAD)
+      - name: Patch update-components.sh (tag checkout + esp-dl IDF 5.0 conflict)
         run: |
-          python3 -c "
+          python3 << 'PYEOF'
           with open('tools/update-components.sh', 'r') as f:
               content = f.read()
-          # git pull --ff-only fails when checked out at a tag (detached HEAD, no tracking branch).
-          # Replace the arduino-specific pull with a guard that skips pull on detached HEAD.
+
+          # Fix 1: git pull --ff-only fails on detached HEAD (tag checkout, no tracking branch)
           content = content.replace(
-              '\tgit -C \"\$AR_COMPS/arduino\" pull --ff-only',
-              '\tgit -C \"\$AR_COMPS/arduino\" symbolic-ref -q HEAD && git -C \"\$AR_COMPS/arduino\" pull --ff-only || echo \"Skipping pull: tag checkout (detached HEAD)\"'
+              '\tgit -C "$AR_COMPS/arduino" pull --ff-only',
+              '\tgit -C "$AR_COMPS/arduino" symbolic-ref -q HEAD && git -C "$AR_COMPS/arduino" pull --ff-only || echo "Skipping pull: tag checkout (detached HEAD)"'
           )
+
+          # Fix 2: esp-dl manifest requires IDF >= 5.0, incompatible with IDF 4.4.x
+          # IDF auto-discovers all components/ subdirs with CMakeLists.txt -> skip clone entirely
+          content = content.replace(
+              'if [ ! -d "$AR_COMPS/esp-dl" ]; then\n\tgit clone $DL_REPO_URL "$AR_COMPS/esp-dl" && \\\n\tgit -C "$AR_COMPS/esp-dl" reset --hard 0632d2447dd49067faabe9761d88fa292589d5d9\n\tif [ $? -ne 0 ]; then exit 1; fi\nfi',
+              '# esp-dl skipped: idf_component.yml requires idf >= 5.0, incompatible with IDF 4.4.x'
+          )
+
           with open('tools/update-components.sh', 'w') as f:
               f.write(content)
-          "
-          echo "--- patched section ---"
+
+          print('Patched successfully')
+          PYEOF
+          echo "--- arduino pull section ---"
           grep -A3 'checkout.*AR_BRANCH' tools/update-components.sh
+          echo "--- esp-dl section ---"
+          grep -A2 'esp-dl' tools/update-components.sh
 
       - name: Add defconfig.pm_enable
         run: |
