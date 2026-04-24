@@ -81,12 +81,14 @@ jobs:
           echo "--- appended fixes ---"
           tail -12 tools/update-components.sh
 
-      - name: Add defconfig.pm_enable
+      - name: Add PM_ENABLE settings to defconfig.common
         run: |
-          printf 'CONFIG_PM_ENABLE=y\nCONFIG_FREERTOS_USE_TICKLESS_IDLE=y\nCONFIG_FREERTOS_IDLE_TIME_BEFORE_SLEEP=3\n' \
-            > configs/defconfig.pm_enable
-          echo "--- defconfig.pm_enable ---"
-          cat configs/defconfig.pm_enable
+          # Positional config args only work with -b flag; full build reads configs from builds.json.
+          # Appending to defconfig.common ensures PM settings are included in ALL build variants.
+          printf '\nCONFIG_PM_ENABLE=y\nCONFIG_FREERTOS_USE_TICKLESS_IDLE=y\nCONFIG_FREERTOS_IDLE_TIME_BEFORE_SLEEP=3\n' \
+            >> configs/defconfig.common
+          echo "--- tail of defconfig.common ---"
+          tail -6 configs/defconfig.common
 
       - name: Checkout arduino-esp32 ${{ inputs.arduino_tag }} (Output-Ziel)
         uses: actions/checkout@v4
